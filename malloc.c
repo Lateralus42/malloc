@@ -32,10 +32,24 @@ void	set_real_size(size_t *size, t_type type)
 	}
 }
 
-void	alloc_region(t_block *last_block, t_type type)
+size_t	get_region_size(t_type type, size_t size)
 {
-	last_block->next = mmap_tiny_region();
+	if (type == TINY)
+		return (TINY_REGION_LEN * getpagesize());
+	else if (type == SMALL)
+		return (SMALL_REGION_LEN * getpagesize());
+	else if (type == LARGE)
+		return (size);
+}
 
+void	alloc_region(t_block *ptr_to_update, t_type type, size_t size)
+{
+	// last_block->next = mmap_tiny_region();
+
+	// malloc_regions.tiny_first_block = (t_block *)mmap(0, tiny_region_size,
+	//		PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+	ptr_to_update = (t_block *)mmap(0, get_region_size(type, size),
+			PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
 }
 
 int		alloc_first_blocks(void)
@@ -46,8 +60,6 @@ int		alloc_first_blocks(void)
 	tiny_region_size = TINY_REGION_LEN * getpagesize();
 	small_region_size = SMALL_REGION_LEN * getpagesize();
 
-	malloc_regions.tiny_first_block = (t_block *)mmap(0, tiny_region_size,
-			PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
 
 	malloc_regions.small_first_block = (t_block *)mmap(0, small_region_size,
 			PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
@@ -90,7 +102,7 @@ void	*alloc_block(size_t size, t_type type)
 
 	prev_block = NULL;
 	curr_block = get_first_block(type);
-	while (!(curr_block->block_flags & FREE && curr_block->next - curr_block > size) && curr_block->next)
+	while (!(type != LARGE && curr_block->block_flags & FREE && curr_block->next - curr_block >= size) && curr_block->next)
 	{
 		prev_block = curr_block;
 		curr_block = curr_block->next;
@@ -102,7 +114,7 @@ void	*alloc_block(size_t size, t_type type)
 	}
 	else if (curr_block->block_flags & LAST || !curr_block->next)
 	{
-		alloc_region(curr_block, type);
+		alloc_region(curr_block->next, type, size);
 		return (alloc_tiny_block(size, type));
 	}
 }
