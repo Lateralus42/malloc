@@ -2,7 +2,7 @@
 
 struct s_malloc_regions malloc_regions;
 
-t_block	*get_first_block(t_type type)
+t_block		*get_first_block(t_type type)
 {
 	// C'EST RIGOLO MAIS PAS CLAIR DU TOUT
 	// return (*(malloc_regions + type * sizeof(t_block *)));
@@ -15,7 +15,80 @@ t_block	*get_first_block(t_type type)
 		return (malloc_regions.large_first_block);
 }
 
-void	set_real_size(size_t *size, t_type type)
+size_t		get_region_size(t_type type, size_t size)
+{
+	if (type == TINY)
+		return (TINY_REGION_LEN * getpagesize());
+	else if (type == SMALL)
+		return (SMALL_REGION_LEN * getpagesize());
+	else if (type == LARGE)
+		return (size);
+}
+
+void		*alloc_region(t_block *ptr_to_update, t_type type, size_t size)
+{
+	size_t	region_size;
+
+	region_size = get_region_size(type, size);
+	ptr_to_update = (t_block *)mmap(0, region_size,
+			PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+	if (ptr_to_update == NULL)
+		return (NULL);
+	ptr_to_update->block_flags = FREE;
+	ptr_to_update->block_size = region_size;
+	ptr_to_update->next = NULL;
+	return (ptr_to_update);
+}
+
+int			alloc_first_blocks(void)
+{
+
+	alloc_region(malloc_regions.tiny_first_block, TINY, 0);
+	alloc_region(malloc_regions.small_first_block, SMALL, 0);
+	if (malloc_regions.tiny_first_block == NULL || malloc_regions.small_first_block == NULL)
+		return (-1);
+	return (0);
+}
+
+void		*set_allocd_metadata(t_block *block, size_t size)
+{
+	t_block *next;
+
+	next = block->next;
+	block->block_flags &= ~FREE;
+	block->block_size = size;
+	if (next)
+	{
+		block->next = block + size;
+		block->next->block_flags = FREE;
+		block->next->next = next;
+	}
+	return (block + sizeof(t_block));
+}
+
+void		*alloc_block(size_t size, t_type type)
+{
+	t_block *curr_block;
+
+	curr_block = get_first_block(type);
+	while (!(type != LARGE && curr_block->block_flags & FREE && curr_block->block_size >= size) && curr_block->next)
+	{
+		curr_block = curr_block->next;
+	}
+	if (curr_block->block_flags & FREE)
+	{
+		return (set_allocd_metadata(curr_block, size));
+	}
+	else if (curr_block->block_flags & LAST || !curr_block->next)
+	{
+		if (!alloc_region(curr_block->next, type, size))
+			return (NULL);
+		return (set_allocd_metadata(curr_block->next, size));
+		// alloc_block(size, type);
+	}
+}
+
+void		set_real_size(size_t *size, t_type type)
 {
 	size_t	quantum_size;
 
@@ -32,97 +105,9 @@ void	set_real_size(size_t *size, t_type type)
 	}
 }
 
-size_t	get_region_size(t_type type, size_t size)
+void		*malloc(size_t size)
 {
-	if (type == TINY)
-		return (TINY_REGION_LEN * getpagesize());
-	else if (type == SMALL)
-		return (SMALL_REGION_LEN * getpagesize());
-	else if (type == LARGE)
-		return (size);
-}
-
-void	alloc_region(t_block *ptr_to_update, t_type type, size_t size)
-{
-	// last_block->next = mmap_tiny_region();
-
-	// malloc_regions.tiny_first_block = (t_block *)mmap(0, tiny_region_size,
-	//		PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
-	ptr_to_update = (t_block *)mmap(0, get_region_size(type, size),
-			PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
-}
-
-int		alloc_first_blocks(void)
-{
-	int tiny_region_size;
-	int small_region_size;
-
-	tiny_region_size = TINY_REGION_LEN * getpagesize();
-	small_region_size = SMALL_REGION_LEN * getpagesize();
-
-
-	malloc_regions.small_first_block = (t_block *)mmap(0, small_region_size,
-			PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
-
-	if (malloc_regions.tiny_first_block == NULL || malloc_regions.small_first_block == NULL)
-		return (-1);
-
-	malloc_regions.tiny_first_block->block_flags = FREE;	
-	// malloc_regions.tiny_first_block->block_size = tiny_region_size;
-	// malloc_regions.tiny_first_block->next = NULL;
-	malloc_regions.tiny_first_block->next = malloc_regions.tiny_first_block - sizeof(t_block);
-	malloc_regions.tiny_first_block->next->block_flags  = FREE | LAST;
-	malloc_regions.tiny_first_block->next->next  = NULL;
-
-	malloc_regions.small_first_block->block_flags = FREE;	
-	// malloc_regions.small_first_block->block_size = small_region_size;
-	// malloc_regions.small_first_block->next = NULL;
-	malloc_regions.small_first_block->next = malloc_regions.small_first_block - sizeof(t_block);
-	malloc_regions.small_first_block->next->block_flags = FREE | LAST;
-	malloc_regions.small_first_block->next->next = NULL;
-
-	return (0);
-}
-
-void	set_allocd_metadata(t_block *block, size_t size)
-{
-	t_block *next;
-
-	next = block->next;
-	block->block_flags &= ~FREE;
-	block->next = block + size;
-	block->next->block_flags = FREE;
-	block->next->next = next;
-}
-
-void	*alloc_block(size_t size, t_type type)
-{
-	t_block *prev_block;
-	t_block *curr_block;
-
-	prev_block = NULL;
-	curr_block = get_first_block(type);
-	while (!(type != LARGE && curr_block->block_flags & FREE && curr_block->next - curr_block >= size) && curr_block->next)
-	{
-		prev_block = curr_block;
-		curr_block = curr_block->next;
-	}
-	if (curr_block->block_flags & FREE)
-	{
-		set_allocd_metadata(curr_block, size);
-		return (curr_block);
-	}
-	else if (curr_block->block_flags & LAST || !curr_block->next)
-	{
-		alloc_region(curr_block->next, type, size);
-		return (alloc_tiny_block(size, type));
-	}
-}
-
-void	*malloc(size_t size)
-{
-	void *mallocd_block;
-	t_type type;
+	t_type	type;
 
 	if (malloc_regions.tiny_first_block == NULL && alloc_first_blocks() == -1)
 		return (NULL);
@@ -133,19 +118,18 @@ void	*malloc(size_t size)
 	else
 		type = LARGE;
 	set_real_size(&size, type);
-	mallocd_block = alloc_block(size, type);
-
-		
+	return (alloc_block(size, type));
 }
 
-void  free(void *ptr)
+void  		free(void *ptr)
 {
 }
 
-void *realloc(void *ptr, size_t size)
+void 		*realloc(void *ptr, size_t size)
 {
+	return (NULL);
 }
 
-void  show_alloc_mem()
+void  		show_alloc_mem()
 {
 }

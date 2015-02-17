@@ -18,7 +18,8 @@
 enum BLOCK_FLAGS
 {
 	FREE = 1,
-	LAST = 2
+	FIRST = 2,
+	LAST = 4
 };
 
 enum MALLOC_TYPE
@@ -40,7 +41,7 @@ static int alloc_first_blocks(void);
 struct s_malloc_block {
 	// int		free_block;
 	char	block_flags;
-	// size_t	block_size;
+	size_t	block_size;
 	struct s_malloc_block *next;
 };
 
